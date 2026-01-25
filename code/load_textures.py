@@ -18,3 +18,5 @@ for i in range(4):
 ghost = Image.open("../res/ghost.png")
 ghost.crop((0, 0, 16, 16)).save("../res/ghost_animation/1.png")
 ghost.crop((18, 0, 34, 16)).save("../res/ghost_animation/2.png")
+spider_right = Image.open("../res/spider_animation/right.png")
+spider_right.transpose(Image.FLIP_LEFT_RIGHT).save("../res/spider_animation/left.png")
