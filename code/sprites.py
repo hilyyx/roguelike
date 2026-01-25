@@ -82,3 +82,6 @@ class Hero(arcade.Sprite):
             self.walk_right_textures.append(
                 arcade.load_texture(f"../res/hero_animation/right{i}.png")
             )
+
+    def update(self, delta_time):
+        pass
