@@ -69,6 +69,7 @@ class Hero(arcade.Sprite):
         self.walk_down_textures = []
         self.walk_left_textures = []
         self.walk_right_textures = []
+        # я мог сделать одним массивом, но так проще дебажить и читать
         for i in range(4):
             self.walk_up_textures.append(
                 arcade.load_texture(f"../res/hero_animation/up{i}.png")
@@ -82,6 +83,37 @@ class Hero(arcade.Sprite):
             self.walk_right_textures.append(
                 arcade.load_texture(f"../res/hero_animation/right{i}.png")
             )
+        self.frame = 0
+        self.animation_timer = 0
+        self.direction = 0
+        """направления анимации: 1 - вверх, 2 - вправо, 3 - вниз, 4 - влево, 0 - не идет"""
 
     def update(self, delta_time):
-        pass
+        new_direction = None
+        if self.change_x == 0 and self.change_y == 0:
+            new_direction = 0
+        elif self.change_y == 0 and self.change_x < 0:
+            new_direction = 4
+        elif self.change_y == 0 and self.change_x > 0:
+            new_direction = 2
+        elif self.change_y > 0:
+            new_direction = 1
+        elif self.change_y < 0:
+            new_direction = 3
+        if new_direction != self.direction:
+            self.frame = 0
+        self.animation_timer += delta_time
+        if self.animation_timer >= HERO_ANIMATION_SPEED:
+            self.frame += 1
+            self.frame %= 4
+            self.animation_timer = 0
+            if self.direction == 0:
+                self.texture = self.idle_texture
+            elif self.direction == 1:
+                self.texture = self.walk_up_textures[self.frame]
+            elif self.direction == 2:
+                self.texture = self.walk_right_textures[self.frame]
+            elif self.direction == 3:
+                self.texture = self.walk_down_textures[self.frame]
+            elif self.direction == 4:
+                self.texture = self.walk_left_textures[self.frame]
