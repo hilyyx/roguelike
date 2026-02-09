@@ -1,3 +1,4 @@
+import random
 import sys
 from pathlib import Path
 
@@ -7,7 +8,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 import arcade
-from code.sprites import Hero
+from code.sprites import *
 
 # Константы окна
 SCREEN_WIDTH = 800
@@ -17,7 +18,19 @@ TITLE = "Roguelike"
 # Масштаб тайлов 16px в TILE_SCALE*16, стартовая карта
 TILE_SCALE = 2.0
 MAPS_DIR = Path(__file__).resolve().parent / "res" / "maps"
-HERO_SPEED = 200
+HERO_SPEED = 4
+MAP_SIZE = 25 * 16 * TILE_SCALE
+HERO_START_X = MAP_SIZE - 16 * TILE_SCALE * 8
+HERO_START_Y = MAP_SIZE - 16 * TILE_SCALE * 5
+
+# Камера
+CAMERA_LERP = 0.12
+
+# Урон
+SPIDER_DAMAGE = 10
+GHOST_DAMAGE = 20
+BULLET_SPEED = 300
+COOLDOWN = 0.5
 
 
 class EndGame(arcade.View):
@@ -29,7 +42,7 @@ class MenuView(arcade.View):
     def __init__(self):
         super().__init__()
         self.option_start = None  # границы кнопки Начать игру
-        self.option_exit = None   # границы кнопки Выйти
+        self.option_exit = None  # границы кнопки Выйти
         self._text_title = None
         self._text_start = None
         self._text_exit = None
@@ -67,7 +80,7 @@ class MenuView(arcade.View):
     def on_draw(self):
         self.clear()
         cx = SCREEN_WIDTH / 2
-        #кнопки
+        # кнопки
         arcade.draw_lbwh_rectangle_filled(
             cx - 120, SCREEN_HEIGHT / 2 - 10, 240, 44, arcade.color.DIM_GRAY
         )
@@ -99,55 +112,158 @@ class GameView(arcade.View):
         self.scene = None
         self.hero = None
         self._text_hint = None
+        self.bullet_list = None
 
     def on_show_view(self):
         arcade.set_background_color(arcade.color.BLACK)
         # Загрузка первой карты map1.tmx
-        map_path = str(MAPS_DIR / "map1.tmx")
+        # Поменял на рандомную
+        map_path = str(MAPS_DIR / f"map{random.choice((1, 2, 3))}.tmx")
         self.tile_map = arcade.load_tilemap(map_path, scaling=TILE_SCALE)
         self.scene = arcade.Scene.from_tilemap(self.tile_map)
+        self.player_spritelist = arcade.SpriteList()
         # обязательно чтоб игрок поверх карты был
-        self.scene.add_sprite_list("player")
-        # по центру располагаю героя
-        start_x = (self.tile_map.width * self.tile_map.tile_width * TILE_SCALE) / 2
-        start_y = (self.tile_map.height * self.tile_map.tile_height * TILE_SCALE) / 2
+        # по центру располагаю героя (upd: пока попробую сверху справа)
+        # start_x = (self.tile_map.width * self.tile_map.tile_width * TILE_SCALE) / 2
+        # start_y = (self.tile_map.height * self.tile_map.tile_height * TILE_SCALE) / 2
+        start_x = HERO_START_X
+        start_y = HERO_START_Y
         self.hero = Hero(start_x, start_y)
-        self.scene.add_sprite("player", self.hero)
+        self.player_spritelist.append(self.hero)
+        self.scene.add_sprite_list("player")
+        self.scene["player"].append(self.hero)
+
+        # генерим противников
+        self.enemies = 10
+        self.scene.add_sprite_list("enemies")
+        self.scene.add_sprite_list("bullets")
+        for i in range(5):
+            self.scene["enemies"].append(Ghost(random.randint(0, MAP_SIZE),
+                                               random.randint(0, MAP_SIZE)))
+        for i in range(5):
+            self.scene["enemies"].append(Spider(random.randint(0, MAP_SIZE),
+                                                random.randint(0, MAP_SIZE)))
         # пока подсказки, хз можно убрать
         self._text_hint = arcade.Text(
             "WASD — движение, Esc — меню",
-            10, SCREEN_HEIGHT - 24,
+            MAP_SIZE - TILE_SCALE * 16 * 10, MAP_SIZE - TILE_SCALE * 16 * 0.5,
             arcade.color.LIGHT_GRAY, 14,
             anchor_x="left", anchor_y="top",
         )
+
+        self.engine = arcade.PhysicsEngineSimple(
+            self.hero,
+            walls=(self.scene["material"],)
+        )
+        self.world_camera = arcade.Camera2D()
+        self.gui_camera = arcade.Camera2D()
+
+        # выигрыши проигрыши и тд
+        self.hp = 100
+        self.damage_timer = 0
+        self.cooldown_timer = 0
+        self.bullet_list = arcade.SpriteList()
 
     def on_draw(self):
         self.clear()
         self.scene.draw()
         self._text_hint.draw()
+        self.gui_camera.use()
+        self.world_camera.use()
 
     def on_update(self, delta_time: float):
-        self.hero.center_x += self.hero.change_x * HERO_SPEED * delta_time
+        # этот блок надо убрать потом
+        '''self.hero.center_x += self.hero.change_x * HERO_SPEED * delta_time
         self.hero.center_y += self.hero.change_y * HERO_SPEED * delta_time
         map_w = self.tile_map.width * self.tile_map.tile_width * TILE_SCALE
         map_h = self.tile_map.height * self.tile_map.tile_height * TILE_SCALE
         margin = 20
         self.hero.center_x = max(margin, min(map_w - margin, self.hero.center_x))
-        self.hero.center_y = max(margin, min(map_h - margin, self.hero.center_y))
+        self.hero.center_y = max(margin, min(map_h - margin, self.hero.center_y))'''
         self.hero.update(delta_time)
+        self.scene["enemies"].update(delta_time, self.hero.center_x, self.hero.center_y)
+        self.scene["bullets"].update(delta_time)
+
+
+        self.hero.left = max(self.hero.left, 0)
+        self.hero.right = min(self.hero.right, MAP_SIZE)
+        self.hero.bottom = max(self.hero.bottom, 0)
+        self.hero.top = min(self.hero.top, HERO_START_Y + 16)
+        for enemy in self.scene["enemies"]:
+            enemy.left = max(enemy.left, 0)
+            enemy.right = min(enemy.right, MAP_SIZE)
+            enemy.bottom = max(enemy.bottom, 0)
+            enemy.top = min(enemy.top, HERO_START_Y + 16)
+        self.engine.update()
+        # камера
+        target_x = self.hero.center_x
+        target_y = self.hero.center_y
+        camera_x = max(SCREEN_WIDTH // 2, min(target_x, MAP_SIZE - SCREEN_WIDTH // 2))
+        camera_y = max(SCREEN_HEIGHT // 2, min(target_y, MAP_SIZE - SCREEN_HEIGHT // 2))
+        cx, cy = self.world_camera.position
+        self.world_camera.position = (cx + (camera_x - cx) * CAMERA_LERP,
+                                      cy + (camera_y - cy) * CAMERA_LERP)
+        self.gui_camera.position = (SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
+        self.damage_timer += delta_time
+        if self.damage_timer >= 1:
+            for enemy in arcade.check_for_collision_with_list(self.hero, self.scene["enemies"]):
+                if type(enemy).__name__ == "Spider":
+                    self.hp -= SPIDER_DAMAGE
+                else:
+                    self.hp -= GHOST_DAMAGE
+            self.damage_timer = 0
+        if self.hp <= 0:
+            self.lose()
+        # пули
+        self.cooldown_timer += delta_time
+        for bullet in self.scene["bullets"]:
+            for enemy in arcade.check_for_collision_with_list(bullet, bullet.enemies):
+                enemy.kill()
+                bullet.kill()
+                self.enemies -= 1
+                continue
+            bullet.center_x += bullet.speedx * delta_time
+            bullet.center_y += bullet.speedy * delta_time
+            print(bullet.center_x)
+            if min(bullet.center_x, bullet.center_y) <= 0 \
+                    or max(bullet.center_x, bullet.center_y) >= bullet.size_window:
+                bullet.kill()
+        if self.enemies <= 0:
+            self.win()
 
     def on_key_press(self, key, modifiers):
         if key == arcade.key.ESCAPE:
             self.window.show_view(MenuView())
             return
         if key in (arcade.key.W, arcade.key.UP):
-            self.hero.change_y = 1
+            self.hero.change_y = HERO_SPEED
         elif key in (arcade.key.S, arcade.key.DOWN):
-            self.hero.change_y = -1
+            self.hero.change_y = -HERO_SPEED
         elif key in (arcade.key.A, arcade.key.LEFT):
-            self.hero.change_x = -1
+            self.hero.change_x = -HERO_SPEED
         elif key in (arcade.key.D, arcade.key.RIGHT):
-            self.hero.change_x = 1
+            self.hero.change_x = HERO_SPEED
+        elif key == arcade.key.SPACE and self.cooldown_timer >= COOLDOWN:
+            if self.hero.change_y != 0 or self.hero.change_x != 0:
+                self.scene["bullets"].append(Bullet(
+                    self.hero.change_x / HERO_SPEED * BULLET_SPEED,
+                    self.hero.change_y / HERO_SPEED * BULLET_SPEED,
+                    self.hero.center_x,
+                    self.hero.center_y,
+                    self.scene["enemies"],
+                    MAP_SIZE
+                ))
+            else:
+                self.scene["bullets"].append(Bullet(
+                    0 * BULLET_SPEED,
+                    -1 * BULLET_SPEED,
+                    self.hero.center_x,
+                    self.hero.center_y,
+                    self.scene["enemies"],
+                    MAP_SIZE
+                ))
+            self.cooldown_timer = 0
+            print(len(self.scene["bullets"]))
 
     def on_key_release(self, key, modifiers):
         if key in (arcade.key.W, arcade.key.UP):
@@ -158,6 +274,12 @@ class GameView(arcade.View):
             self.hero.change_x = 0
         elif key in (arcade.key.D, arcade.key.RIGHT):
             self.hero.change_x = 0
+
+    def win(self):
+        pass
+
+    def lose(self):
+        pass
 
 
 def main():
