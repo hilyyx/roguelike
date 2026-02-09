@@ -1,4 +1,10 @@
+import os
+
 import arcade
+
+# Корень проекта (родитель папки code/) — пути к ресурсам работают при любом cwd
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_RES = os.path.join(_PROJECT_ROOT, "res")
 
 GHOST_ANIMATION_SPEED = 0.5
 HERO_ANIMATION_SPEED = 0.25
@@ -18,10 +24,10 @@ class Enemy(arcade.Sprite):
 class Spider(Enemy):
     def __init__(self, x, y, speed):
         super().__init__(x, y)
-        self.up_image = arcade.load_texture("../res/spider_animation/up.png")
-        self.down_image = arcade.load_texture("../res/spider_animation/down.png")
-        self.left_image = arcade.load_texture("../res/spider_animation/left.png")
-        self.right_image = arcade.load_texture("../res/spider_animation/right.png")
+        self.up_image = arcade.load_texture(os.path.join(_RES, "spider_animation", "up.png"))
+        self.down_image = arcade.load_texture(os.path.join(_RES, "spider_animation", "down.png"))
+        self.left_image = arcade.load_texture(os.path.join(_RES, "spider_animation", "left.png"))
+        self.right_image = arcade.load_texture(os.path.join(_RES, "spider_animation", "right.png"))
         self.texture = self.up_image
         self.speed = speed
 
@@ -42,8 +48,10 @@ class Spider(Enemy):
 class Ghost(Enemy):
     def __init__(self, x, y, speed):
         super().__init__(x, y)
-        self.textures = [arcade.load_texture("../res/ghost_animation/1.png"),
-                         arcade.load_texture("../res/ghost_animation/2.png")]
+        self.textures = [
+            arcade.load_texture(os.path.join(_RES, "ghost_animation", "1.png")),
+            arcade.load_texture(os.path.join(_RES, "ghost_animation", "2.png")),
+        ]
         self.texture = self.textures[0]
         self.frame = 0
         self.animation_timer = 0
@@ -64,29 +72,22 @@ class Hero(arcade.Sprite):
         super().__init__()
         self.center_x = x
         self.center_y = y
-        self.idle_texture = arcade.load_texture("../res/hero_animation/default.png")
+        hero_res = os.path.join(_RES, "hero_animation")
+        self.idle_texture = arcade.load_texture(os.path.join(hero_res, "default.png"))
         self.walk_up_textures = []
         self.walk_down_textures = []
         self.walk_left_textures = []
         self.walk_right_textures = []
-        # я мог сделать одним массивом, но так проще дебажить и читать
         for i in range(4):
-            self.walk_up_textures.append(
-                arcade.load_texture(f"../res/hero_animation/up{i}.png")
-            )
-            self.walk_down_textures.append(
-                arcade.load_texture(f"../res/hero_animation/down{i}.png")
-            )
-            self.walk_left_textures.append(
-                arcade.load_texture(f"../res/hero_animation/left{i}.png")
-            )
-            self.walk_right_textures.append(
-                arcade.load_texture(f"../res/hero_animation/right{i}.png")
-            )
+            self.walk_up_textures.append(arcade.load_texture(os.path.join(hero_res, f"up{i}.png")))
+            self.walk_down_textures.append(arcade.load_texture(os.path.join(hero_res, f"down{i}.png")))
+            self.walk_left_textures.append(arcade.load_texture(os.path.join(hero_res, f"left{i}.png")))
+            self.walk_right_textures.append(arcade.load_texture(os.path.join(hero_res, f"right{i}.png")))
         self.frame = 0
         self.animation_timer = 0
         self.direction = 0
         """направления анимации: 1 - вверх, 2 - вправо, 3 - вниз, 4 - влево, 0 - не идет"""
+        self.texture = self.idle_texture
 
     def update(self, delta_time):
         new_direction = None
