@@ -46,7 +46,7 @@ def gravity_drag(p):  # Для искр: чуть вниз и затухание
     p.change_y *= 0.92
 
 
-def make_ring(x, y, count=40, radius=5.0):
+def make_ring(x, y, count=40, radius=32.0):
     # Кольцо искр (векторы направлены по окружности)
     return Emitter(
         center_xy=(x, y),
@@ -210,6 +210,8 @@ class GameView(arcade.View):
         self.score_text.draw()
         self.gui_camera.use()
         self.world_camera.use()
+        if self.win_ring is not None:
+            self.win_ring.draw()
 
     def on_update(self, delta_time: float):
         # этот блок надо убрать потом
