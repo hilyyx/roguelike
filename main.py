@@ -26,7 +26,7 @@ SPARK_TEX = [
 TILE_SCALE = 2.0
 MAPS_DIR = Path(__file__).resolve().parent / "res" / "maps"
 HERO_SPEED = 4
-MAP_SIZE = 25 * 16 * TILE_SCALE
+MAP_SIZE = int(25 * 16 * TILE_SCALE)
 HERO_START_X = MAP_SIZE - 16 * TILE_SCALE * 8
 HERO_START_Y = MAP_SIZE - 16 * TILE_SCALE * 5
 
@@ -134,6 +134,47 @@ class MenuView(arcade.View):
             self.window.close()
 
 
+class PauseView(arcade.View):
+    def __init__(self, game_view: "GameView"):
+        super().__init__()
+        self.game_view = game_view
+        self._text_title = None
+        self._text_hint = None
+
+    def on_show_view(self):
+        arcade.set_background_color(arcade.color.BLACK)
+        if self.game_view._music_player is not None:
+            arcade.stop_sound(self.game_view._music_player)
+            self.game_view._music_player = None
+        cx, cy = SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2
+        self._text_title = arcade.Text(
+            "Пауза",
+            cx, cy + 30,
+            arcade.color.WHITE, 48,
+            anchor_x="center", anchor_y="center",
+            font_name=("arial", "calibri"),
+        )
+        self._text_hint = arcade.Text(
+            "Esc — продолжить",
+            cx, cy - 40,
+            arcade.color.LIGHT_GRAY, 22,
+            anchor_x="center", anchor_y="center",
+        )
+
+    def on_draw(self):
+        self.clear()
+        arcade.draw_lbwh_rectangle_filled(
+            0, 0, SCREEN_WIDTH, SCREEN_HEIGHT,
+            (0, 0, 0, 180),
+        )
+        self._text_title.draw()
+        self._text_hint.draw()
+
+    def on_key_press(self, key, modifiers):
+        if key == arcade.key.ESCAPE:
+            self.window.show_view(self.game_view)
+
+
 class GameView(arcade.View):
     def __init__(self):
         super().__init__()
@@ -143,28 +184,36 @@ class GameView(arcade.View):
         self._text_hint = None
         self.bullet_list = None
         self.win_ring = None
+        self.current_map_num = None  # 1, 2 или 3 — текущая карта
+        self.world_camera = None
+        self.gui_camera = None
+        self.victory_triggered = False   # победа уже показана на этой карте
+        self.transition_timer = None     # таймер до перехода на след карту
+        self.victory_title_text = None
+        self.victory_timer_text = None
+        self._game_music = None
+        self._music_player = None
 
-    def on_show_view(self):
-        arcade.set_background_color(arcade.color.BLACK)
+    def _load_map(self, map_num: int):
+        self.current_map_num = map_num
+        self.win_ring = None
+        self.victory_triggered = False
+        self.transition_timer = None
+        self.victory_title_text = None
+        self.victory_timer_text = None
 
-        arcade.play_sound(arcade.load_sound("res/soundtrack.mp3"), loop=True)
-
-        # Загрузка первой карты map1.tmx
-        # Поменял на рандомную
-        map_path = str(MAPS_DIR / f"map{random.choice((1, 2, 3))}.tmx")
+        map_path = str(MAPS_DIR / f"map{map_num}.tmx")
         self.tile_map = arcade.load_tilemap(map_path, scaling=TILE_SCALE)
         self.scene = arcade.Scene.from_tilemap(self.tile_map)
-        self.player_spritelist = arcade.SpriteList()
+
         # обязательно чтоб игрок поверх карты был
         # по центру располагаю героя (upd: пока попробую сверху справа)
         start_x = HERO_START_X
         start_y = HERO_START_Y
         self.hero = Hero(start_x, start_y)
-        self.player_spritelist.append(self.hero)
         self.scene.add_sprite_list("player")
         self.scene["player"].append(self.hero)
 
-        # генерим противников
         self.enemies = 10
         self.scene.add_sprite_list("enemies")
         self.scene.add_sprite_list("bullets")
@@ -174,7 +223,12 @@ class GameView(arcade.View):
         for i in range(self.enemies // 2):
             self.scene["enemies"].append(Spider(random.randint(0, MAP_SIZE),
                                                 random.randint(0, MAP_SIZE)))
-        # пока подсказки, хз можно убрать
+        # выигрыши проигрыши и тд
+        self.hp = 100
+        self.damage_timer = 0
+        self.cooldown_timer = 0
+        self.bullet_list = arcade.SpriteList()
+
         self._text_hint = arcade.Text(
             "WASD — движение, Esc — меню",
             MAP_SIZE - TILE_SCALE * 16 * 10, MAP_SIZE - TILE_SCALE * 16 * 0.5,
@@ -182,9 +236,15 @@ class GameView(arcade.View):
             anchor_x="left", anchor_y="top",
         )
         self.score_text = arcade.Text(
-            str(self.enemies),
+            f"Врагов осталось: {self.enemies}",
             MAP_SIZE - TILE_SCALE * 16 * 10, MAP_SIZE - TILE_SCALE * 16 * 0.5,
             arcade.color.RED, 20,
+            anchor_x="left", anchor_y="top",
+        )
+        self.hp_text = arcade.Text(
+            f"HP: {self.hp}",
+            MAP_SIZE - TILE_SCALE * 16 * 10, MAP_SIZE - TILE_SCALE * 16 * 0.5 - 28,
+            arcade.color.GREEN, 20,
             anchor_x="left", anchor_y="top",
         )
         # камера, движок
@@ -192,24 +252,34 @@ class GameView(arcade.View):
             self.hero,
             walls=(self.scene["material"],)
         )
-        self.world_camera = arcade.Camera2D()
-        self.gui_camera = arcade.Camera2D()
 
-        # выигрыши проигрыши и тд
-        self.hp = 100
-        self.damage_timer = 0
-        self.cooldown_timer = 0
-        self.bullet_list = arcade.SpriteList()
+    def on_show_view(self):
+        arcade.set_background_color(arcade.color.BLACK)
+        if self._game_music is None:
+            self._game_music = arcade.load_sound("res/soundtrack.mp3")
+        self._music_player = arcade.play_sound(self._game_music, loop=True)
+
+        if self.world_camera is None:
+            self.world_camera = arcade.Camera2D()
+            self.gui_camera = arcade.Camera2D()
+
+        # первый заход — случайная карта и при переходе с победы карта задаётся в win()
+        if self.current_map_num is None:
+            self._load_map(random.choice((1, 2, 3)))
 
     def on_draw(self):
         self.clear()
         self.scene.draw()
         self._text_hint.draw()
         self.score_text.draw()
+        self.hp_text.draw()
         self.gui_camera.use()
         self.world_camera.use()
         if self.win_ring is not None:
             self.win_ring.draw()
+        if self.victory_title_text is not None and self.victory_timer_text is not None:
+            self.victory_title_text.draw()
+            self.victory_timer_text.draw()
 
     def on_update(self, delta_time: float):
         self.hero.update(delta_time)
@@ -268,13 +338,25 @@ class GameView(arcade.View):
         self.score_text.y += SCREEN_HEIGHT // 2
         self.score_text.x -= SCREEN_WIDTH // 2
         if self.enemies <= 0:
-            self.win()
+            if not self.victory_triggered:
+                self.victory_triggered = True # чтобы один раз только
+                self.win()
+                self.transition_timer = 5.0
+            if self.transition_timer is not None:
+                self.transition_timer -= delta_time
+                if self.victory_timer_text is not None:
+                    sec_left = round(self.transition_timer)
+                    self.victory_timer_text.text = f"Следующая карта через {sec_left} сек"
+                if self.transition_timer <= 0:
+                    self.transition_timer = None
+                    self._go_next_map()
+
         if self.win_ring is not None:
             self.win_ring.update()
 
     def on_key_press(self, key, modifiers):
         if key == arcade.key.ESCAPE:
-            self.window.show_view(MenuView())
+            self.window.show_view(PauseView(self))
             return
         if key in (arcade.key.W, arcade.key.UP):
             self.hero.change_y = HERO_SPEED
@@ -316,8 +398,27 @@ class GameView(arcade.View):
         elif key in (arcade.key.D, arcade.key.RIGHT):
             self.hero.change_x = 0
 
+    def _go_next_map(self):
+        #всего 3 карты, между ними переключаемся
+        next_num = (self.current_map_num % 3) + 1
+        self._load_map(next_num)
+
     def win(self):
         self.win_ring = make_ring(self.hero.center_x, self.hero.center_y)
+        cx, cy = SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2
+        self.victory_title_text = arcade.Text(
+            "Победа!",
+            cx, cy + 50,
+            arcade.color.WHITE, 36,
+            anchor_x="center", anchor_y="center",
+            font_name=("arial", "calibri"),
+        )
+        self.victory_timer_text = arcade.Text(
+            "Следующая карта через 5 сек",
+            cx, cy - 30,
+            arcade.color.WHITE, 22,
+            anchor_x="center", anchor_y="center",
+        )
 
     def lose(self):
         pass
