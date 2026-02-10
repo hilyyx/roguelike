@@ -189,7 +189,7 @@ class GameView(arcade.View):
         )
         # камера, движок
         self.engine = arcade.PhysicsEngineSimple(
-            self.hero,
+            player_sprite=self.hero,
             walls=(self.scene["material"],)
         )
         self.world_camera = arcade.Camera2D()
@@ -259,7 +259,6 @@ class GameView(arcade.View):
                 continue
             bullet.center_x += bullet.speedx * delta_time
             bullet.center_y += bullet.speedy * delta_time
-            print(bullet.center_x)
             if min(bullet.center_x, bullet.center_y) <= 0 \
                     or max(bullet.center_x, bullet.center_y) >= bullet.size_window:
                 bullet.kill()
@@ -284,8 +283,8 @@ class GameView(arcade.View):
             self.hero.change_x = -HERO_SPEED
         elif key in (arcade.key.D, arcade.key.RIGHT):
             self.hero.change_x = HERO_SPEED
-        elif key == arcade.key.SPACE and self.cooldown_timer >= COOLDOWN:
-            if self.hero.change_y != 0 or self.hero.change_x != 0:
+    def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> bool | None:
+        if self.hero.change_y != 0 or self.hero.change_x != 0:
                 self.scene["bullets"].append(Bullet(
                     self.hero.change_x / HERO_SPEED * BULLET_SPEED,
                     self.hero.change_y / HERO_SPEED * BULLET_SPEED,
@@ -294,7 +293,7 @@ class GameView(arcade.View):
                     self.scene["enemies"],
                     MAP_SIZE
                 ))
-            else:
+        else:
                 self.scene["bullets"].append(Bullet(
                     0 * BULLET_SPEED,
                     -1 * BULLET_SPEED,
@@ -303,8 +302,7 @@ class GameView(arcade.View):
                     self.scene["enemies"],
                     MAP_SIZE
                 ))
-            self.cooldown_timer = 0
-            print(len(self.scene["bullets"]))
+        self.cooldown_timer = 0
 
     def on_key_release(self, key, modifiers):
         if key in (arcade.key.W, arcade.key.UP):
