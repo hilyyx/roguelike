@@ -1,6 +1,7 @@
 import random
 import sys
 from pathlib import Path
+from arcade.particles import FadeParticle, Emitter, EmitBurst, EmitInterval, EmitMaintainCount
 
 # Корень проекта первым в path, чтобы импорт находил пакет code, а не stdlib
 _PROJECT_ROOT = Path(__file__).resolve().parent
@@ -14,6 +15,12 @@ from code.sprites import *
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 TITLE = "Roguelike"
+SPARK_TEX = [
+    arcade.make_soft_circle_texture(8, arcade.color.PASTEL_YELLOW),
+    arcade.make_soft_circle_texture(8, arcade.color.PEACH),
+    arcade.make_soft_circle_texture(8, arcade.color.BABY_BLUE),
+    arcade.make_soft_circle_texture(8, arcade.color.ELECTRIC_CRIMSON),
+]
 
 # Масштаб тайлов 16px в TILE_SCALE*16, стартовая карта
 TILE_SCALE = 2.0
@@ -31,6 +38,28 @@ SPIDER_DAMAGE = 10
 GHOST_DAMAGE = 20
 BULLET_SPEED = 300
 COOLDOWN = 0.5
+
+
+def gravity_drag(p):  # Для искр: чуть вниз и затухание скорости
+    p.change_y += -0.03
+    p.change_x *= 0.92
+    p.change_y *= 0.92
+
+
+def make_ring(x, y, count=40, radius=5.0):
+    # Кольцо искр (векторы направлены по окружности)
+    return Emitter(
+        center_xy=(x, y),
+        emit_controller=EmitBurst(count),
+        particle_factory=lambda e: FadeParticle(
+            filename_or_texture=random.choice(SPARK_TEX),
+            change_xy=arcade.math.rand_on_circle((0.0, 0.0), radius),
+            lifetime=random.uniform(0.8, 1.4),
+            start_alpha=255, end_alpha=0,
+            scale=random.uniform(0.4, 0.7),
+            mutation_callback=gravity_drag,
+        ),
+    )
 
 
 class EndGame(arcade.View):
@@ -113,9 +142,13 @@ class GameView(arcade.View):
         self.hero = None
         self._text_hint = None
         self.bullet_list = None
+        self.win_ring = None
 
     def on_show_view(self):
         arcade.set_background_color(arcade.color.BLACK)
+
+        arcade.play_sound(arcade.load_sound("res/soundtrack.mp3"), loop=True)
+
         # Загрузка первой карты map1.tmx
         # Поменял на рандомную
         map_path = str(MAPS_DIR / f"map{random.choice((1, 2, 3))}.tmx")
@@ -134,13 +167,13 @@ class GameView(arcade.View):
         self.scene["player"].append(self.hero)
 
         # генерим противников
-        self.enemies = 10
+        self.enemies = 0
         self.scene.add_sprite_list("enemies")
         self.scene.add_sprite_list("bullets")
-        for i in range(5):
+        for i in range(self.enemies // 2):
             self.scene["enemies"].append(Ghost(random.randint(0, MAP_SIZE),
                                                random.randint(0, MAP_SIZE)))
-        for i in range(5):
+        for i in range(self.enemies // 2):
             self.scene["enemies"].append(Spider(random.randint(0, MAP_SIZE),
                                                 random.randint(0, MAP_SIZE)))
         # пока подсказки, хз можно убрать
@@ -150,7 +183,13 @@ class GameView(arcade.View):
             arcade.color.LIGHT_GRAY, 14,
             anchor_x="left", anchor_y="top",
         )
-
+        self.score_text = arcade.Text(
+            str(self.enemies),
+            MAP_SIZE - TILE_SCALE * 16 * 10, MAP_SIZE - TILE_SCALE * 16 * 0.5,
+            arcade.color.RED, 20,
+            anchor_x="left", anchor_y="top",
+        )
+        # камера, движок
         self.engine = arcade.PhysicsEngineSimple(
             self.hero,
             walls=(self.scene["material"],)
@@ -168,6 +207,7 @@ class GameView(arcade.View):
         self.clear()
         self.scene.draw()
         self._text_hint.draw()
+        self.score_text.draw()
         self.gui_camera.use()
         self.world_camera.use()
 
@@ -183,7 +223,6 @@ class GameView(arcade.View):
         self.hero.update(delta_time)
         self.scene["enemies"].update(delta_time, self.hero.center_x, self.hero.center_y)
         self.scene["bullets"].update(delta_time)
-
 
         self.hero.left = max(self.hero.left, 0)
         self.hero.right = min(self.hero.right, MAP_SIZE)
@@ -204,6 +243,7 @@ class GameView(arcade.View):
         self.world_camera.position = (cx + (camera_x - cx) * CAMERA_LERP,
                                       cy + (camera_y - cy) * CAMERA_LERP)
         self.gui_camera.position = (SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
+        # урон, пули и тд
         self.damage_timer += delta_time
         if self.damage_timer >= 1:
             for enemy in arcade.check_for_collision_with_list(self.hero, self.scene["enemies"]):
@@ -217,6 +257,9 @@ class GameView(arcade.View):
         # пули
         self.cooldown_timer += delta_time
         for bullet in self.scene["bullets"]:
+            if arcade.check_for_collision_with_list(bullet, self.scene["material"]):
+                bullet.kill()
+                continue
             for enemy in arcade.check_for_collision_with_list(bullet, bullet.enemies):
                 enemy.kill()
                 bullet.kill()
@@ -228,8 +271,14 @@ class GameView(arcade.View):
             if min(bullet.center_x, bullet.center_y) <= 0 \
                     or max(bullet.center_x, bullet.center_y) >= bullet.size_window:
                 bullet.kill()
+        self.score_text.text = f"Врагов осталось: {self.enemies}"
+        self.score_text.x, self.score_text.y = self.world_camera.position
+        self.score_text.y += SCREEN_HEIGHT // 2
+        self.score_text.x -= SCREEN_WIDTH // 2
         if self.enemies <= 0:
             self.win()
+        if self.win_ring is not None:
+            self.win_ring.update()
 
     def on_key_press(self, key, modifiers):
         if key == arcade.key.ESCAPE:
@@ -276,7 +325,7 @@ class GameView(arcade.View):
             self.hero.change_x = 0
 
     def win(self):
-        pass
+        self.win_ring = make_ring(self.hero.center_x, self.hero.center_y)
 
     def lose(self):
         pass
