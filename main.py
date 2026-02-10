@@ -56,7 +56,7 @@ def make_ring(x, y, count=40, radius=32.0):
             change_xy=arcade.math.rand_on_circle((0.0, 0.0), radius),
             lifetime=random.uniform(0.8, 1.4),
             start_alpha=255, end_alpha=0,
-            scale=random.uniform(0.4, 0.7),
+            scale=random.uniform(1.2, 2),
             mutation_callback=gravity_drag,
         ),
     )
@@ -157,8 +157,6 @@ class GameView(arcade.View):
         self.player_spritelist = arcade.SpriteList()
         # обязательно чтоб игрок поверх карты был
         # по центру располагаю героя (upd: пока попробую сверху справа)
-        # start_x = (self.tile_map.width * self.tile_map.tile_width * TILE_SCALE) / 2
-        # start_y = (self.tile_map.height * self.tile_map.tile_height * TILE_SCALE) / 2
         start_x = HERO_START_X
         start_y = HERO_START_Y
         self.hero = Hero(start_x, start_y)
@@ -167,7 +165,7 @@ class GameView(arcade.View):
         self.scene["player"].append(self.hero)
 
         # генерим противников
-        self.enemies = 0
+        self.enemies = 10
         self.scene.add_sprite_list("enemies")
         self.scene.add_sprite_list("bullets")
         for i in range(self.enemies // 2):
@@ -214,14 +212,6 @@ class GameView(arcade.View):
             self.win_ring.draw()
 
     def on_update(self, delta_time: float):
-        # этот блок надо убрать потом
-        '''self.hero.center_x += self.hero.change_x * HERO_SPEED * delta_time
-        self.hero.center_y += self.hero.change_y * HERO_SPEED * delta_time
-        map_w = self.tile_map.width * self.tile_map.tile_width * TILE_SCALE
-        map_h = self.tile_map.height * self.tile_map.tile_height * TILE_SCALE
-        margin = 20
-        self.hero.center_x = max(margin, min(map_w - margin, self.hero.center_x))
-        self.hero.center_y = max(margin, min(map_h - margin, self.hero.center_y))'''
         self.hero.update(delta_time)
         self.scene["enemies"].update(delta_time, self.hero.center_x, self.hero.center_y)
         self.scene["bullets"].update(delta_time)
