@@ -1,5 +1,6 @@
 import random
 import sys
+import time
 from pathlib import Path
 from arcade.particles import FadeParticle, Emitter, EmitBurst, EmitInterval, EmitMaintainCount
 
@@ -39,6 +40,9 @@ GHOST_DAMAGE = 20
 BULLET_SPEED = 300
 COOLDOWN = 0.5
 
+from code.database import init_db, save_run
+from code.statistics_view import StatisticsView
+
 
 def gravity_drag(p):  # Для искр: чуть вниз и затухание скорости
     p.change_y += -0.03
@@ -70,10 +74,12 @@ class EndGame(arcade.View):
 class MenuView(arcade.View):
     def __init__(self):
         super().__init__()
-        self.option_start = None  # границы кнопки Начать игру
-        self.option_exit = None  # границы кнопки Выйти
+        self.option_start = None
+        self.option_statistics = None
+        self.option_exit = None
         self._text_title = None
         self._text_start = None
+        self._text_statistics = None
         self._text_exit = None
 
     def on_show_view(self):
@@ -84,11 +90,13 @@ class MenuView(arcade.View):
     def _setup_button_areas(self):
         cx = SCREEN_WIDTH / 2
         cy = SCREEN_HEIGHT / 2
-        self.option_start = (cx - 120, cy - 10, 240, 44)
-        self.option_exit = (cx - 120, cy - 70, 240, 44)
+        self.option_start = (cx - 120, cy + 32, 240, 44)
+        self.option_statistics = (cx - 120, cy - 28, 240, 44)
+        self.option_exit = (cx - 120, cy - 88, 240, 44)
 
     def _create_text_objects(self):
         cx = SCREEN_WIDTH / 2
+        cy = SCREEN_HEIGHT / 2
         self._text_title = arcade.Text(
             TITLE, cx, SCREEN_HEIGHT - 120,
             arcade.color.WHEAT, 48,
@@ -96,12 +104,17 @@ class MenuView(arcade.View):
             font_name=("arial", "calibri"),
         )
         self._text_start = arcade.Text(
-            "Начать игру", cx, SCREEN_HEIGHT / 2 + 12,
+            "Начать игру", cx, cy + 54,
+            arcade.color.WHITE, 24,
+            anchor_x="center", anchor_y="center",
+        )
+        self._text_statistics = arcade.Text(
+            "Статистика", cx, cy - 6,
             arcade.color.WHITE, 24,
             anchor_x="center", anchor_y="center",
         )
         self._text_exit = arcade.Text(
-            "Выйти", cx, SCREEN_HEIGHT / 2 - 48,
+            "Выйти", cx, cy - 66,
             arcade.color.WHITE, 24,
             anchor_x="center", anchor_y="center",
         )
@@ -109,16 +122,13 @@ class MenuView(arcade.View):
     def on_draw(self):
         self.clear()
         cx = SCREEN_WIDTH / 2
-        # кнопки
-        arcade.draw_lbwh_rectangle_filled(
-            cx - 120, SCREEN_HEIGHT / 2 - 10, 240, 44, arcade.color.DIM_GRAY
-        )
-        arcade.draw_lbwh_rectangle_filled(
-            cx - 120, SCREEN_HEIGHT / 2 - 70, 240, 44, arcade.color.DIM_GRAY
-        )
-
+        cy = SCREEN_HEIGHT / 2
+        arcade.draw_lbwh_rectangle_filled(cx - 120, cy + 32, 240, 44, arcade.color.DIM_GRAY)
+        arcade.draw_lbwh_rectangle_filled(cx - 120, cy - 28, 240, 44, arcade.color.DIM_GRAY)
+        arcade.draw_lbwh_rectangle_filled(cx - 120, cy - 88, 240, 44, arcade.color.DIM_GRAY)
         self._text_title.draw()
         self._text_start.draw()
+        self._text_statistics.draw()
         self._text_exit.draw()
 
     def _is_inside(self, x, y, rect):
@@ -130,6 +140,8 @@ class MenuView(arcade.View):
             return
         if self._is_inside(x, y, self.option_start):
             self.window.show_view(GameView())
+        elif self._is_inside(x, y, self.option_statistics):
+            self.window.show_view(StatisticsView(MenuView()))
         elif self._is_inside(x, y, self.option_exit):
             self.window.close()
 
@@ -188,11 +200,16 @@ class GameView(arcade.View):
         self.world_camera = None
         self.gui_camera = None
         self.victory_triggered = False   # победа уже показана на этой карте
+        self.game_over_triggered = False # проигрыш уже обработан (HP <= 0)
         self.transition_timer = None     # таймер до перехода на след карту
         self.victory_title_text = None
         self.victory_timer_text = None
         self._game_music = None
         self._music_player = None
+        self.total_enemies_killed = 0
+        self.total_bullets_fired = 0
+        self.start_time = None
+        self.level_text = None
 
     def _load_map(self, map_num: int):
         self.current_map_num = map_num
@@ -247,6 +264,12 @@ class GameView(arcade.View):
             arcade.color.GREEN, 20,
             anchor_x="left", anchor_y="top",
         )
+        self.level_text = arcade.Text(
+            f"Уровень {map_num}",
+            MAP_SIZE - TILE_SCALE * 16 * 10, MAP_SIZE - TILE_SCALE * 16 * 0.5 + 28,
+            arcade.color.LIGHT_GRAY, 18,
+            anchor_x="left", anchor_y="top",
+        )
         # камера, движок
         self.engine = arcade.PhysicsEngineSimple(
             player_sprite=self.hero,
@@ -263,14 +286,17 @@ class GameView(arcade.View):
             self.world_camera = arcade.Camera2D()
             self.gui_camera = arcade.Camera2D()
 
-        # первый заход — случайная карта и при переходе с победы карта задаётся в win()
+        # первый заход — всегда уровень 1; далее 2 и 3; после 3 — экран победы
         if self.current_map_num is None:
-            self._load_map(random.choice((1, 2, 3)))
+            self.start_time = time.time()
+            self._load_map(1)
 
     def on_draw(self):
         self.clear()
         self.scene.draw()
         self._text_hint.draw()
+        if self.level_text is not None:
+            self.level_text.draw()
         self.score_text.draw()
         self.hp_text.draw()
         self.gui_camera.use()
@@ -314,8 +340,13 @@ class GameView(arcade.View):
                 else:
                     self.hp -= GHOST_DAMAGE
             self.damage_timer = 0
-        if self.hp <= 0:
-            self.lose()
+        if self.hp <= 0 and not self.game_over_triggered:
+            self.game_over_triggered = True
+            run_time = time.time() - self.start_time
+            save_run(run_time, self.total_bullets_fired, self.total_enemies_killed, won=False)
+            # переключаем вид на следующем кадре, чтобы клики не терялись
+            arcade.schedule_once(lambda dt: self.lose(), 0)
+            return
         # пули
         self.cooldown_timer += delta_time
         for bullet in self.scene["bullets"]:
@@ -326,6 +357,7 @@ class GameView(arcade.View):
                 enemy.kill()
                 bullet.kill()
                 self.enemies -= 1
+                self.total_enemies_killed += 1
                 continue
             bullet.center_x += bullet.speedx * delta_time
             bullet.center_y += bullet.speedy * delta_time
@@ -336,6 +368,12 @@ class GameView(arcade.View):
         self.score_text.x, self.score_text.y = self.world_camera.position
         self.score_text.y += SCREEN_HEIGHT // 2
         self.score_text.x -= SCREEN_WIDTH // 2
+        self.hp_text.text = f"HP: {self.hp}"
+        self.hp_text.x = self.score_text.x
+        self.hp_text.y = self.score_text.y - 28
+        if self.level_text is not None:
+            self.level_text.x = self.score_text.x
+            self.level_text.y = self.score_text.y + 28
         if self.enemies <= 0:
             if not self.victory_triggered:
                 self.victory_triggered = True # чтобы один раз только
@@ -348,7 +386,14 @@ class GameView(arcade.View):
                     self.victory_timer_text.text = f"Следующая карта через {sec_left} сек"
                 if self.transition_timer <= 0:
                     self.transition_timer = None
-                    self._go_next_map()
+                    if self.current_map_num == 3:
+                        run_time = time.time() - self.start_time
+                        save_run(run_time, self.total_bullets_fired, self.total_enemies_killed, won=True)
+                        self.window.show_view(VictoryView(
+                            run_time, self.total_bullets_fired, self.total_enemies_killed
+                        ))
+                    else:
+                        self._go_next_map()
 
         if self.win_ring is not None:
             self.win_ring.update()
@@ -361,11 +406,15 @@ class GameView(arcade.View):
             self.hero.change_y = HERO_SPEED
         elif key in (arcade.key.S, arcade.key.DOWN):
             self.hero.change_y = -HERO_SPEED
+            
         elif key in (arcade.key.A, arcade.key.LEFT):
             self.hero.change_x = -HERO_SPEED
         elif key in (arcade.key.D, arcade.key.RIGHT):
             self.hero.change_x = HERO_SPEED
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> bool | None:
+        if self.game_over_triggered:
+            return
+        self.total_bullets_fired += 1
         if self.hero.change_y != 0 or self.hero.change_x != 0:
                 self.scene["bullets"].append(Bullet(
                     self.hero.change_x / HERO_SPEED * BULLET_SPEED,
@@ -397,8 +446,8 @@ class GameView(arcade.View):
             self.hero.change_x = 0
 
     def _go_next_map(self):
-        #всего 3 карты, между ними переключаемся
-        next_num = (self.current_map_num % 3) + 1
+        # уровни; после 3 показывается VictoryView, сюда не заходим
+        next_num = self.current_map_num + 1
         self._load_map(next_num)
 
     def win(self):
@@ -419,10 +468,76 @@ class GameView(arcade.View):
         )
 
     def lose(self):
-        pass
+        self.window.show_view(GameOverView())
+
+
+class GameOverView(arcade.View):
+    def on_show_view(self):
+        arcade.set_background_color(arcade.color.DARK_RED)
+        cx, cy = SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2
+        self._title = arcade.Text(
+            "Game Over",
+            cx, cy + 20,
+            arcade.color.WHITE, 48,
+            anchor_x="center", anchor_y="center",
+        )
+        self._hint = arcade.Text(
+            "Enter или клик — в меню",
+            cx, cy - 50,
+            arcade.color.LIGHT_GRAY, 20,
+            anchor_x="center", anchor_y="center",
+        )
+
+    def on_draw(self):
+        self.clear()
+        self._title.draw()
+        self._hint.draw()
+
+    def on_key_press(self, key, modifiers):
+        if key == arcade.key.ENTER or key == arcade.key.ESCAPE:
+            self.window.show_view(MenuView())
+
+    def on_mouse_press(self, x, y, button, modifiers):
+        self.window.show_view(MenuView())
+
+
+class VictoryView(arcade.View):
+    def __init__(self, time_seconds: float, bullets_used: int, enemies_killed: int):
+        super().__init__()
+        self.time_seconds = time_seconds
+        self.bullets_used = bullets_used
+        self.enemies_killed = enemies_killed
+        self._texts = []
+
+    def on_show_view(self):
+        arcade.set_background_color(arcade.color.DARK_GREEN)
+        cx, cy = SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2
+        mins = int(self.time_seconds // 60)
+        secs = int(self.time_seconds % 60)
+        time_str = f"{mins} мин {secs} сек"
+        self._texts = [
+            arcade.Text("Игра пройдена!", cx, cy + 80, arcade.color.GOLD, 40, anchor_x="center", anchor_y="center"),
+            arcade.Text(f"Время: {time_str}", cx, cy + 30, arcade.color.WHITE, 24, anchor_x="center", anchor_y="center"),
+            arcade.Text(f"Пуль израсходовано: {self.bullets_used}", cx, cy - 20, arcade.color.WHITE, 24, anchor_x="center", anchor_y="center"),
+            arcade.Text(f"Врагов побеждено: {self.enemies_killed}", cx, cy - 70, arcade.color.WHITE, 24, anchor_x="center", anchor_y="center"),
+            arcade.Text("Enter или клик — в меню", cx, cy - 130, arcade.color.LIGHT_GRAY, 18, anchor_x="center", anchor_y="center"),
+        ]
+
+    def on_draw(self):
+        self.clear()
+        for t in self._texts:
+            t.draw()
+
+    def on_key_press(self, key, modifiers):
+        if key == arcade.key.ENTER or key == arcade.key.ESCAPE:
+            self.window.show_view(MenuView())
+
+    def on_mouse_press(self, x, y, button, modifiers):
+        self.window.show_view(MenuView())
 
 
 def main():
+    init_db()
     window = arcade.Window(SCREEN_WIDTH, SCREEN_HEIGHT, TITLE)
     window.show_view(MenuView())
     arcade.run()
