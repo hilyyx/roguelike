@@ -66,11 +66,6 @@ def make_ring(x, y, count=40, radius=32.0):
     )
 
 
-class EndGame(arcade.View):
-    def __init__(self):
-        super().__init__()
-
-
 class MenuView(arcade.View):
     def __init__(self):
         super().__init__()
@@ -199,9 +194,9 @@ class GameView(arcade.View):
         self.current_map_num = None  # 1, 2 или 3 — текущая карта
         self.world_camera = None
         self.gui_camera = None
-        self.victory_triggered = False   # победа уже показана на этой карте
-        self.game_over_triggered = False # проигрыш уже обработан (HP <= 0)
-        self.transition_timer = None     # таймер до перехода на след карту
+        self.victory_triggered = False  # победа уже показана на этой карте
+        self.game_over_triggered = False  # проигрыш уже обработан (HP <= 0)
+        self.transition_timer = None  # таймер до перехода на след карту
         self.victory_title_text = None
         self.victory_timer_text = None
         self._game_music = None
@@ -376,7 +371,7 @@ class GameView(arcade.View):
             self.level_text.y = self.score_text.y + 28
         if self.enemies <= 0:
             if not self.victory_triggered:
-                self.victory_triggered = True # чтобы один раз только
+                self.victory_triggered = True  # чтобы один раз только
                 self.win()
                 self.transition_timer = 5.0
             if self.transition_timer is not None:
@@ -406,33 +401,34 @@ class GameView(arcade.View):
             self.hero.change_y = HERO_SPEED
         elif key in (arcade.key.S, arcade.key.DOWN):
             self.hero.change_y = -HERO_SPEED
-            
+
         elif key in (arcade.key.A, arcade.key.LEFT):
             self.hero.change_x = -HERO_SPEED
         elif key in (arcade.key.D, arcade.key.RIGHT):
             self.hero.change_x = HERO_SPEED
+
     def on_mouse_press(self, x: int, y: int, button: int, modifiers: int) -> bool | None:
         if self.game_over_triggered:
             return
         self.total_bullets_fired += 1
         if self.hero.change_y != 0 or self.hero.change_x != 0:
-                self.scene["bullets"].append(Bullet(
-                    self.hero.change_x / HERO_SPEED * BULLET_SPEED,
-                    self.hero.change_y / HERO_SPEED * BULLET_SPEED,
-                    self.hero.center_x,
-                    self.hero.center_y,
-                    self.scene["enemies"],
-                    MAP_SIZE
-                ))
+            self.scene["bullets"].append(Bullet(
+                self.hero.change_x / HERO_SPEED * BULLET_SPEED,
+                self.hero.change_y / HERO_SPEED * BULLET_SPEED,
+                self.hero.center_x,
+                self.hero.center_y,
+                self.scene["enemies"],
+                MAP_SIZE
+            ))
         else:
-                self.scene["bullets"].append(Bullet(
-                    0 * BULLET_SPEED,
-                    -1 * BULLET_SPEED,
-                    self.hero.center_x,
-                    self.hero.center_y,
-                    self.scene["enemies"],
-                    MAP_SIZE
-                ))
+            self.scene["bullets"].append(Bullet(
+                0 * BULLET_SPEED,
+                -1 * BULLET_SPEED,
+                self.hero.center_x,
+                self.hero.center_y,
+                self.scene["enemies"],
+                MAP_SIZE
+            ))
         self.cooldown_timer = 0
 
     def on_key_release(self, key, modifiers):
@@ -517,10 +513,14 @@ class VictoryView(arcade.View):
         time_str = f"{mins} мин {secs} сек"
         self._texts = [
             arcade.Text("Игра пройдена!", cx, cy + 80, arcade.color.GOLD, 40, anchor_x="center", anchor_y="center"),
-            arcade.Text(f"Время: {time_str}", cx, cy + 30, arcade.color.WHITE, 24, anchor_x="center", anchor_y="center"),
-            arcade.Text(f"Пуль израсходовано: {self.bullets_used}", cx, cy - 20, arcade.color.WHITE, 24, anchor_x="center", anchor_y="center"),
-            arcade.Text(f"Врагов побеждено: {self.enemies_killed}", cx, cy - 70, arcade.color.WHITE, 24, anchor_x="center", anchor_y="center"),
-            arcade.Text("Enter или клик — в меню", cx, cy - 130, arcade.color.LIGHT_GRAY, 18, anchor_x="center", anchor_y="center"),
+            arcade.Text(f"Время: {time_str}", cx, cy + 30, arcade.color.WHITE, 24, anchor_x="center",
+                        anchor_y="center"),
+            arcade.Text(f"Пуль израсходовано: {self.bullets_used}", cx, cy - 20, arcade.color.WHITE, 24,
+                        anchor_x="center", anchor_y="center"),
+            arcade.Text(f"Врагов побеждено: {self.enemies_killed}", cx, cy - 70, arcade.color.WHITE, 24,
+                        anchor_x="center", anchor_y="center"),
+            arcade.Text("Enter или клик — в меню", cx, cy - 130, arcade.color.LIGHT_GRAY, 18, anchor_x="center",
+                        anchor_y="center"),
         ]
 
     def on_draw(self):
